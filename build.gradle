@@ -1,0 +1,125 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(22)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+project.ext {
+    lwjglVersion = "3.3.6"
+    platform = {
+        String os = System.getProperty("os.name").toLowerCase()
+        if (os.contains("mac")) {
+            return System.getProperty("os.arch").startsWith("aarch64") ? "natives-macos-arm64" : "natives-macos"
+        } else if (os.contains("win")) {
+            return "natives-windows"
+        } else {
+            return "natives-linux"
+        }
+    }.call()
+}
+
+dependencies {
+    implementation "org.joml:joml:1.10.5"
+    implementation "org.lwjgl:lwjgl:${lwjglVersion}"
+    runtimeOnly "org.lwjgl:lwjgl:${lwjglVersion}:${platform}"
+    implementation "org.lwjgl:lwjgl-glfw:${lwjglVersion}"
+    runtimeOnly "org.lwjgl:lwjgl-glfw:${lwjglVersion}:${platform}"
+    implementation "org.lwjgl:lwjgl-opengl:${lwjglVersion}"
+    runtimeOnly "org.lwjgl:lwjgl-opengl:${lwjglVersion}:${platform}"
+    implementation "org.lwjgl:lwjgl-vulkan:${lwjglVersion}"
+    runtimeOnly "org.lwjgl:lwjgl-vulkan:${lwjglVersion}:${platform}"
+    implementation "org.lwjgl:lwjgl-shaderc:${lwjglVersion}"
+    runtimeOnly "org.lwjgl:lwjgl-shaderc:${lwjglVersion}:${platform}"
+    implementation "org.lwjgl:lwjgl-stb:${lwjglVersion}"
+    runtimeOnly "org.lwjgl:lwjgl-stb:${lwjglVersion}:${platform}"
+    implementation "org.lwjgl:lwjgl-openal:${lwjglVersion}"
+    runtimeOnly "org.lwjgl:lwjgl-openal:${lwjglVersion}:${platform}"
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+application {
+    mainClass = 'game.Main'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 22
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+tasks.register('compileShaders') {
+    group = 'build'
+    description = 'Compile GLSL shaders to SPIR-V with glslc'
+    def srcDir = file('src/main/resources/shaders')
+    def outDir = file("${buildDir}/resources/main/shaders")
+    inputs.files fileTree(srcDir).matching { include '*.vert', '*.frag' }
+    outputs.dir outDir
+    doLast {
+        outDir.mkdirs()
+        fileTree(srcDir).matching { include '*.vert', '*.frag' }.each { f ->
+            def out = new File(outDir, f.name + '.spv')
+            if (!out.exists() || out.lastModified() < f.lastModified()) {
+                def pb = new ProcessBuilder('glslc', f.absolutePath, '-o', out.absolutePath)
+                pb.redirectErrorStream(true)
+                def proc = pb.start()
+                def log = proc.inputStream.text
+                def code = proc.waitFor()
+                if (code != 0) {
+                    throw new GradleException("glslc failed for ${f.name}:\n${log}")
+                }
+            }
+        }
+    }
+}
+processResources.dependsOn compileShaders
+
+tasks.register('printRuntimeClasspath') {
+    doLast { println sourceSets.main.runtimeClasspath.asPath }
+}
+
+run {
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(22) }
+    if (System.getProperty("os.name").toLowerCase().contains("mac")) {
+        jvmArgs '-XstartOnFirstThread'
+    }
+    systemProperty 'game.debug', project.findProperty('game.debug') ?: 'false'
+    systemProperty 'game.previewPort', project.findProperty('game.previewPort') ?: '8620'
+    systemProperty 'game.smokeTest', project.findProperty('game.smokeTest') ?: ''
+    systemProperty 'game.screenshot', project.findProperty('game.screenshot') ?: ''
+    systemProperty 'game.autotest', project.findProperty('game.autotest') ?: 'false'
+    systemProperty 'game.playtest', project.findProperty('game.playtest') ?: 'false'
+    systemProperty 'game.tour', project.findProperty('game.tour') ?: 'false'
+}
+
+tasks.register('runClient', JavaExec) {
+    group = 'application'
+    description = 'Run the game client'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'game.Main'
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(22) }
+    jvmArgs '-Xmx3g'
+    if (System.getProperty("os.name").toLowerCase().contains("mac")) {
+        jvmArgs '-XstartOnFirstThread'
+    }
+    systemProperty 'game.debug', project.findProperty('game.debug') ?: 'false'
+    systemProperty 'game.previewPort', project.findProperty('game.previewPort') ?: '8620'
+    systemProperty 'game.smokeTest', project.findProperty('game.smokeTest') ?: ''
+    systemProperty 'game.screenshot', project.findProperty('game.screenshot') ?: ''
+    systemProperty 'game.autotest', project.findProperty('game.autotest') ?: 'false'
+    systemProperty 'game.playtest', project.findProperty('game.playtest') ?: 'false'
+    systemProperty 'game.tour', project.findProperty('game.tour') ?: 'false'
+}
